@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+    
+    - name: Get ready
+      id: ready
+      run: |
+        cd "${{ github.workspace }}"
+        sourceCompatibility=$(grep 'sourceCompatibility' app/build.gradle | sed -E 's/.*[^0-9]([0-9]+)[^0-9]*$/\1/')
+        targetCompatibility=$(grep 'targetCompatibility' app/build.gradle | sed -E 's/.*[^0-9]([0-9]+)[^0-9]*$/\1/')
+        if [[ ${sourceCompatibility} -ge ${targetCompatibility} ]];
+        then
+          jdkVersion=${sourceCompatibility}
+        else
+          jdkVersion=${targetCompatibility}
+        fi
+        versionName="$(grep -oP "versionName[\\s=]+[\"\']?\K[^\"\']+" app/build.gradle)"
+        versionCode="$(grep -oP "versionCode[\\s=]+[\"\']?\K[^\"\']+" app/build.gradle)"
+        debugDirectoryPath="app/build/outputs/apk/debug"
+        originalDebugFileName="app-debug.apk"
+        targetDebugFileName="Teeter_v${versionName}-debug (${versionCode}).apk"
+        originalDebugFilePath="${debugDirectoryPath}/${originalDebugFileName}"
+        targetDebugFilePath="${debugDirectoryPath}/${targetDebugFileName}"
+        releaseDirectoryPath="app/build/outputs/apk/release"
+        originalReleaseFileName="app-release.apk"
+        targetReleaseFileName="Teeter_v${versionName}-release (${versionCode}).apk"
+        originalReleaseFilePath="${releaseDirectoryPath}/${originalReleaseFileName}"
+        targetReleaseFilePath="${releaseDirectoryPath}/${targetReleaseFileName}"
+        echo "Java version: ${javaVersion}"
+        echo "Original debug file path: ${originalDebugFilePath}"
+        echo "Target debug file path: ${targetDebugFilePath}"
+        echo "Original release file path: ${originalReleaseFilePath}"
+        echo "Target release file path: ${targetReleaseFilePath}"
+        echo "jdkVersion=${jdkVersion}" >> "${GITHUB_OUTPUT}"
+        echo "originalDebugFilePath=${originalDebugFilePath}" >> "${GITHUB_OUTPUT}"
+        echo "targetDebugFilePath=${targetDebugFilePath}" >> "${GITHUB_OUTPUT}"
+        echo "originalReleaseFilePath=${originalReleaseFilePath}" >> "${GITHUB_OUTPUT}"
+        echo "targetReleaseFilePath=${targetReleaseFilePath}" >> "${GITHUB_OUTPUT}"
+    
+    - name: Set up JDK ${{ steps.ready.outputs.jdkVersion }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: '${{ steps.ready.outputs.jdkVersion }}'
+        distribution: 'temurin'
+        cache: gradle
+    
+    - name: Build
+      run: |
+        cd "${{ github.workspace }}"
+        chmod +x gradlew
+        ./gradlew build
+        mv "${{ steps.ready.outputs.originalDebugFilePath }}" "${{ steps.ready.outputs.targetDebugFilePath }}"
+        mv "${{ steps.ready.outputs.originalReleaseFilePath }}" "${{ steps.ready.outputs.targetReleaseFilePath }}"
+    
+    - name: Upload the artifact (debug)
+      uses: actions/upload-artifact@v7
+      with:
+        path: ${{ github.workspace }}/${{ steps.ready.outputs.targetDebugFilePath }}
+        archive: false
+        if-no-files-found: warn
+    
+    - name: Upload the artifact (release)
+      uses: actions/upload-artifact@v7
+      with:
+        path: ${{ github.workspace }}/${{ steps.ready.outputs.targetReleaseFilePath }}
+        archive: false
+        if-no-files-found: error
